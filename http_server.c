@@ -16,6 +16,8 @@
 #define MAX_CONNECTIONS 5
 #define MAX_TIMESTAMP_LENGTH 64
 
+#define MAX_RETRIES 5
+
 int sockfd; // Listening socket
 int client_sockfd; // Connected socket
 int child;
@@ -30,6 +32,68 @@ time_t seconds;
 struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
 
+int read_socket(int fd, char *buffer, int size) {
+    int bytes_recvd = 0;
+    int retries = 0;
+    int total_recvd = 0;
+
+    while (retries < MAX_RETRIES && size > 0 && strstr(buffer, ">") == NULL) {
+        bytes_recvd = read(fd, buffer, size);
+
+        if (bytes_recvd > 0) {
+            buffer += bytes_recvd;
+            size -= bytes_recvd;
+            total_recvd += bytes_recvd;
+        } else {
+            retries++;
+        }
+    }
+
+    if (bytes_recvd >= 0) {
+        // Last read was not an error, return how many bytes were recvd
+        return total_recvd;
+    }
+    // Last read was an error, return error code
+    return -1;
+}
+
+int write_socket(int fd, char *msg, int size) {
+    int bytes_sent = 0;
+    int retries = 0;
+    int total_sent = 0;
+
+    while (retries < MAX_RETRIES && size > 0) {
+        bytes_sent = write(fd, msg, size);
+
+        if (bytes_sent > 0) {
+            msg += bytes_sent;
+            size -= bytes_sent;
+            total_sent += bytes_sent;
+        } else {
+            retries++;
+        }
+    }
+
+    if (bytes_sent >= 0) {
+        // Last write was not an error, return how many bytes were sent
+        return total_sent;
+    }
+    // Last write was an error, return error code
+    return -1;
+}
+
+int handle_client_connection() {
+
+}
+
+void terminate(int err_code) {
+    shutdown(client_sockfd, SHUT_RDWR);
+    close(client_sockfd);
+    close(sockfd);
+
+    exit(err_code);
+}
+
 int main(int argc, char *argv[]) {
 
     // Clear all invalid data
@@ -39,7 +103,7 @@ int main(int argc, char *argv[]) {
     host_entity = gethostbyname(HOST_NAME);
     if (host_entity == NULL) {
         printf("Unable to resolve hostname %s\n", HOST_NAME);
-        exit(1);
+        terminate(1);
         return 1;
     }
 
@@ -53,21 +117,21 @@ int main(int argc, char *argv[]) {
 
     if (sockfd < 0) {
         printf("Unable to open socket\n");
-        exit(1);
+        terminate(1);
         return 1;
     }
 
     // Try to bind to socket
     if (bind(sockfd, (struct sockaddr*) &serverhost, sizeof(serverhost)) < 0) {
         printf("Unable to bind to socket\n");
-        exit(1);
+        terminate(1);
         return 1;
     }
 
     // Try to listen to socket
     if (listen(sockfd, MAX_CONNECTIONS) < 0) {
         printf("Unable to listen on socket\n");
-        exit(1);
+        terminate(1);
         return 1;
     }
 
@@ -80,7 +144,7 @@ int main(int argc, char *argv[]) {
 
         if (client_sockfd < 0) {
             printf("Unable to accept connection\n");
-            exit(1);
+            terminate(1);
             return 1;
         }
         // Timestamp the connection accept
@@ -99,8 +163,8 @@ int main(int argc, char *argv[]) {
 
         child = fork();
         if (child == 0) {
-           // do_something();
-           exit(0);
+            handle_client_connection();
+            exit(0);
         }
     }
     return 0;
