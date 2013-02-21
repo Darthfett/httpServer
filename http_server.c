@@ -34,34 +34,33 @@ struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
 
 int read_line(int fd, char *buffer, int size) {
-    char *broken_buffer = (char*) malloc(sizeof(char) * 8096);
+    char broken_buffer[8096];
     char next = '\0';
     char err;
     int i = 0;
     FILE *f = fopen("read_line2.txt", "w");
     while (i < size - 1 && next != '\n') {
         err = read(fd, &next, 1);
-        if (err > 0) {
-            if (next == '\r') {
-                err = recv(fd, &next, 1, MSG_PEEK);
-                if (err > 0 && next == '\n') {
-                    read(fd, &next, 1);
-                } else {
-                    next = '\n';
-                }
+
+        if (err <= 0) break;
+
+        if (next == '\r') {
+            err = recv(fd, &next, 1, MSG_PEEK);
+            if (err > 0 && next == '\n') {
+                read(fd, &next, 1);
+            } else {
+                next = '\n';
             }
-            fputc(next, f);
-            broken_buffer[i] = next;
-            buffer[i] = next;
-            i++;
-        } else {
-            next = '\n';
         }
+        fputc(next, f);
+        // broken_buffer[i] = next;
+        // buffer[i] = next;
+        i++;
     }
-    broken_buffer[i] = '\0';
-    buffer[i] = '\0';
+    // broken_buffer[i] = '\0';
+    // buffer[i] = '\0';
     FILE *out = fopen("read_line.txt", "w");
-    fprintf(out, "%s\n", broken_buffer);
+    fprintf(out, "%d\n", i);
     fclose(out);
     fclose(f);
 
@@ -151,9 +150,6 @@ int handle_client_connection() {
     int i = 0,
         j = 0;
     FILE *out = fopen("blah.txt", "w");
-    fprintf(out, "%s\n", buffer);
-    fclose(out);
-    out = fopen("blah2.txt", "w");
 
     // Get Method
     while (i < sizeof(method) - 1 && !isspace(buffer[i])) {
