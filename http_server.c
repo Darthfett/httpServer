@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +17,7 @@
 #define HOST_NAME "127.0.0.1"
 #define MAX_CONNECTIONS 5
 #define MAX_TIMESTAMP_LENGTH 64
-#define SERVER_STRING "Server: httpServer/0.1.0\r\n"
+#define SERVER_STRING "Server: httpServer/0.1.1\r\n"
 
 #define MAX_RETRIES 5
 
@@ -34,8 +36,13 @@ struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
 
 // Value specific to client connections
-int keep_alive = TRUE;
+int keep_alive = TRUE; // Default in HTTP/1.1
 int content_length = -1;
+int cookie = FALSE;
+int header_err_flag = FALSE;
+struct tm *if_modified_since;
+int time_is_valid = TRUE;
+
 
 int read_line(int fd, char *buffer, int size) {
     char next = '\0';
@@ -111,20 +118,49 @@ int write_socket(int fd, char *msg, int size) {
     return -1;
 }
 
+void not_modified() {
+    // 304
+}
+
+void bad_request() {
+    // 400 Error
+}
+
+void forbidden() {
+    // 403 Error
+}
+
+void not_found() {
+    // 404 Error
+}
+
 void method_not_allowed() {
+    // 405 Error
     char buffer[8096];
-    sprintf(buffer, "HTTP/1.0 501 Method Not Implemented\r\n");
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 501 Method Not Implemented\r\n");
     write_socket(client_sockfd, buffer, strlen(buffer));
     sprintf(buffer, SERVER_STRING);
     write_socket(client_sockfd, buffer, strlen(buffer));
     sprintf(buffer, "Content-Type: text/html\r\n");
+
+    sprintf(body, "<HTML><HEAD><TITLE>Method Not Implemented</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>HTTP request method not supported.</P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
     write_socket(client_sockfd, buffer, strlen(buffer));
     sprintf(buffer, "\r\n");
     write_socket(client_sockfd, buffer, strlen(buffer));
-    sprintf(buffer, "<HTML><HEAD><TITLE>Method Not Implemented</TITLE></HEAD>\r\n");
-    write_socket(client_sockfd, buffer, strlen(buffer));
-    sprintf(buffer, "<BODY><P>HTTP request method not supported.</P></BODY></HTML>\r\n");
-    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    write_socket(client_sockfd, body, strlen(body));
+}
+
+void server_error() {
+    // 500 Error
+}
+
+void not_implemented() {
+    // 501 Error
 }
 
 void read_headers() {
@@ -139,7 +175,8 @@ void read_headers() {
 
         if (len <= 0) {
             // Error in reading from socket
-            return;
+            header_err_flag = TRUE;
+            continue;
         }
 
         fprintf(stderr, "%s", header);
@@ -168,8 +205,9 @@ void read_headers() {
         header_value_start = strchr(header, ':');
         if (header_value_start == NULL) {
             // Invalid header, not sure what to do in this scenario
-                fprintf(stderr, "invalid header\n");
-            return;
+            fprintf(stderr, "invalid header\n");
+            header_err_flag = TRUE;
+            continue;
         }
         int header_type_len = header_value_start - header;
 
@@ -193,67 +231,70 @@ void read_headers() {
             }
         } else if (strncasecmp(header, "Content-Length", header_type_len) == 0) {
             content_length = atoi(header_value_start);
+        } else if (strncasecmp(header, "Cookie", header_type_len) == 0) {
+            cookie = TRUE;
+        } else if (strncasecmp(header, "If-Modified-Since", header_type_len) == 0) {
+            // Copy everything but trailing newline to buffer
+            char *modified_since_buffer = (char*) malloc(sizeof(char) * strlen(header_value_start));
+            strncpy(modified_since_buffer, header_value_start, strlen(header_value_start) - 1);
+
+            // Get actual time structure for received time
+            strptime(modified_since_buffer, "%a, %d %b %Y %T %Z", if_modified_since);
+            free(modified_since_buffer);
+
+            if (if_modified_since == NULL) {
+                time_is_valid = FALSE;    
+            }
         }
     }
 }
 
 int handle_client_connection() {
     char buffer[8096];
+    int buffer_len; // Length of buffer
+
     char method[256];
     char url[256];
     char version[256];
-    int len;
-    int len2;
-    int i = 0,
+
+    int i = 0, // Used to iterate over the first line to get method, url, version
         j = 0;
-    int pid = getpid();
-    char fname[32];
-    snprintf(fname, 32, "blah%d.txt", pid);
 
-    len = read_line(client_sockfd, buffer, sizeof(buffer));
+    // Read first line
+    buffer_len = read_line(client_sockfd, buffer, sizeof(buffer));
 
-    if (len <= 0) {
+    // Unable to read from socket, not sure what to do in this case
+    if (buffer_len <= 0) {
         return -1;
     }
-    
-    fprintf(stderr, "%d\n", len);
-    fprintf(stderr, "%s\n", buffer);
 
-
-    // Get Method
+    // Get Method (e.g. GET, POST, etc)
     while ((i < (sizeof(method) - 1)) && (!isspace(buffer[i]))) {
         method[i] = buffer[i];
         i++;
     }
     method[i] = '\0';
 
-    fprintf(stderr, "%s\n", method);
-
-    if (strcmp(method, "GET") != 0) {
-        fprintf(stderr, "Method Not Allowed:\n");
-        fprintf(stderr, "%s\n", method);
-        method_not_allowed();    
-        return 0;
-    }
+    fprintf(stderr, "method: %s\n", method);
 
     // Skip over spaces
-    while (i < len && isspace(buffer[i])) {
+    while (i < buffer_len && isspace(buffer[i])) {
         i++;
     }
 
     // Get URL
     j = 0;
-    while (i < len && (j < (sizeof(url) - 1)) && !isspace(buffer[i])) {
+    while (i < buffer_len && (j < (sizeof(url) - 1)) && !isspace(buffer[i])) {
         url[j] = buffer[i];
         i++;
         j++;
     }
     url[j] = '\0';
 
-    fprintf(stderr, "%s\n", url);
+    fprintf(stderr, "url: %s\n", url);
 
     // Skip over spaces
-    while (i < len && isspace(buffer[i])) {
+    while (i < buffer_len && isspace(buffer[i])) {
         i++;
     }
 
@@ -265,12 +306,37 @@ int handle_client_connection() {
     }
     version[j] = '\0';
 
-    fprintf(stderr, "%s\n", version);
+    fprintf(stderr, "version: %s\n", version);
 
     read_headers();
 
     fprintf(stderr, "Content-Length: %d\n", content_length);
     fprintf(stderr, "Connection (keep_alive): %d\n", keep_alive);
+    fprintf(stderr, "Cookie: %d\n", cookie);
+    fprintf(stderr, "If-Modified-Since Valid Time: %d\n", time_is_valid);
+    fprintf(stderr, "If-Modified-Since Time: %p\n", if_modified_since);
+
+    /***********************************************************/
+    /*       Full message has been read, respond to client     */
+    /***********************************************************/
+
+    // Inform client we don't support method if method is not GET
+    if (strcmp(method, "GET") != 0) {
+        fprintf(stderr, "Method Not Allowed:\n");
+        fprintf(stderr, "%s\n", method);
+        method_not_allowed();    
+        return 0;
+    }
+
+    if (header_err_flag) {
+        bad_request();
+        return 0;
+    }
+
+    if (cookie) {
+        not_implemented();
+        return 0;
+    }
 
     return 0;
 }
@@ -296,7 +362,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Copy host information to serverhost
-    memcpy((char*) &serverhost.sin_addr, host_entity->h_addr, host_entity->h_length);
+    memcpy((char*) &serverhost.sin_addr, host_entity->h_addr_list[0], host_entity->h_length);
     serverhost.sin_port = htons((short) PORT);
     serverhost.sin_family = host_entity->h_addrtype;
 
@@ -344,7 +410,7 @@ int main(int argc, char *argv[]) {
         // Get client host
         client_entity = gethostbyaddr((char*) &(clienthost.sin_addr), sizeof(clienthost.sin_addr), AF_INET);
         if (client_entity > 0) {
-            printf("[%s] Connection accepted from %s (%s)\n", timestamp_str, client_entity->h_name, client_entity->h_addr);
+            printf("[%s] Connection accepted from %s (%s)\n", timestamp_str, client_entity->h_name, client_entity->h_addr_list[0]);
         } else {
             printf("[%s] Connection accepted from unresolvable host\n", timestamp_str);
         }
