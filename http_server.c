@@ -33,6 +33,10 @@ time_t seconds;
 struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
 
+// Value specific to client connections
+int keep_alive = TRUE;
+int content_length = -1;
+
 int read_line(int fd, char *buffer, int size) {
     char next = '\0';
     char err;
@@ -123,12 +127,74 @@ void method_not_allowed() {
     write_socket(client_sockfd, buffer, strlen(buffer));
 }
 
-void handle_client_connection1() {
-    char buffer[8096];
-    int len = read_socket(client_sockfd, buffer, sizeof(buffer));
-    FILE *f = fopen("blah.txt", "w");
-    fprintf(f, "%s\n", buffer);
-    fclose(f);
+void read_headers() {
+    fprintf(stderr, "\n--READ HEADERS--\n\n");
+    while(1) {
+        char header[8096];
+        int len;
+        char next;
+        int err;
+        char *header_value_start;
+        len = read_line(client_sockfd, header, sizeof(header));
+
+        if (len <= 0) {
+            // Error in reading from socket
+            return;
+        }
+
+        fprintf(stderr, "%s", header);
+
+        if (strcmp(header, "\n") == 0) {
+            // Empty line signals end of HTTP Headers
+            return;
+        }
+
+        // If the next line begins with a space or tab, it is a continuation of the previous line.
+        err = recv(client_sockfd, &next, 1, MSG_PEEK);
+        while (isspace(next) && next != '\n' && next != '\r') {
+            if (err) {
+                fprintf(stderr, "header space/tab continuation check err\n");
+                // Not sure what to do in this scenario
+            }
+            // Read the space/tab and get rid of it 
+            read(client_sockfd, &next, 1);
+            
+            // Concatenate the next line to the current running header line
+            len = len + read_line(client_sockfd, header + len, sizeof(header) - len);
+            err = recv(client_sockfd, &next, 1, MSG_PEEK);
+        }
+
+        // Find first occurence of colon, to split by header type and value
+        header_value_start = strchr(header, ':');
+        if (header_value_start == NULL) {
+            // Invalid header, not sure what to do in this scenario
+                fprintf(stderr, "invalid header\n");
+            return;
+        }
+        int header_type_len = header_value_start - header;
+
+        // Increment header value start past colon
+        header_value_start++;
+        // Increment header value start to first non-space character
+        while (isspace(*header_value_start) && (*header_value_start != '\n') && (*header_value_start != '\r')) {
+            header_value_start++;
+        }
+        int header_value_len = len - (header_value_start - header);
+
+
+        if (strncasecmp(header, "Connection", header_type_len) == 0) {
+            // We care about the connection type "keep-alive"
+            if (strncasecmp(header_value_start, "keep-alive", strlen("keep-alive")) == 0) {
+                keep_alive = TRUE;
+            }
+            else if (strncasecmp(header_value_start, "close", strlen("close")) == 0) {
+                keep_alive = FALSE;
+
+            }
+        } else if (strncasecmp(header, "Content-Length", header_type_len) == 0) {
+            content_length = atoi(header_value_start);
+        }
+    }
 }
 
 int handle_client_connection() {
@@ -150,10 +216,8 @@ int handle_client_connection() {
         return -1;
     }
     
-    FILE *out = fopen(fname, "a+");
-
-    fprintf(out, "%d\n", len);
-    fprintf(out, "%s\n", buffer);
+    fprintf(stderr, "%d\n", len);
+    fprintf(stderr, "%s\n", buffer);
 
 
     // Get Method
@@ -163,12 +227,11 @@ int handle_client_connection() {
     }
     method[i] = '\0';
 
-    fprintf(out, "%s\n", method);
+    fprintf(stderr, "%s\n", method);
 
     if (strcmp(method, "GET") != 0) {
-        fprintf(out, "Method Not Allowed:\n");
-        fprintf(out, "%s\n", method);
-        fclose(out);
+        fprintf(stderr, "Method Not Allowed:\n");
+        fprintf(stderr, "%s\n", method);
         method_not_allowed();    
         return 0;
     }
@@ -187,7 +250,7 @@ int handle_client_connection() {
     }
     url[j] = '\0';
 
-    fprintf(out, "%s\n", url);
+    fprintf(stderr, "%s\n", url);
 
     // Skip over spaces
     while (i < len && isspace(buffer[i])) {
@@ -202,8 +265,12 @@ int handle_client_connection() {
     }
     version[j] = '\0';
 
-    fprintf(out, "%s\n", version);
-    fclose(out);
+    fprintf(stderr, "%s\n", version);
+
+    read_headers();
+
+    fprintf(stderr, "Content-Length: %d\n", content_length);
+    fprintf(stderr, "Connection (keep_alive): %d\n", keep_alive);
 
     return 0;
 }
