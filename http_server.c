@@ -34,12 +34,10 @@ struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
 
 int read_line(int fd, char *buffer, int size) {
-    char broken_buffer[8096];
     char next = '\0';
     char err;
     int i = 0;
-    FILE *f = fopen("read_line2.txt", "w");
-    while (i < size - 1 && next != '\n') {
+    while ((i < (size - 1)) && (next != '\n')) {
         err = read(fd, &next, 1);
 
         if (err <= 0) break;
@@ -52,18 +50,10 @@ int read_line(int fd, char *buffer, int size) {
                 next = '\n';
             }
         }
-        fputc(next, f);
-        // broken_buffer[i] = next;
-        // buffer[i] = next;
+        buffer[i] = next;
         i++;
     }
-    // broken_buffer[i] = '\0';
-    // buffer[i] = '\0';
-    FILE *out = fopen("read_line.txt", "w");
-    fprintf(out, "%d\n", i);
-    fclose(out);
-    fclose(f);
-
+    buffer[i] = '\0';
     return i;
 }
 
@@ -137,7 +127,7 @@ void handle_client_connection1() {
     char buffer[8096];
     int len = read_socket(client_sockfd, buffer, sizeof(buffer));
     FILE *f = fopen("blah.txt", "w");
-    fprintf(f, "%s", buffer);
+    fprintf(f, "%s\n", buffer);
     fclose(f);
 }
 
@@ -146,40 +136,63 @@ int handle_client_connection() {
     char method[256];
     char url[256];
     char version[256];
-    int len = read_line(client_sockfd, buffer, sizeof(buffer));
+    int len;
+    int len2;
     int i = 0,
         j = 0;
-    FILE *out = fopen("blah.txt", "w");
+    int pid = getpid();
+    char fname[32];
+    snprintf(fname, 32, "blah%d.txt", pid);
+
+    len = read_line(client_sockfd, buffer, sizeof(buffer));
+
+    if (len <= 0) {
+        return -1;
+    }
+    
+    FILE *out = fopen(fname, "a+");
+
+    fprintf(out, "%d\n", len);
+    fprintf(out, "%s\n", buffer);
+
 
     // Get Method
-    while (i < sizeof(method) - 1 && !isspace(buffer[i])) {
+    while ((i < (sizeof(method) - 1)) && (!isspace(buffer[i]))) {
         method[i] = buffer[i];
         i++;
     }
     method[i] = '\0';
 
-    if (strcasecmp(method, "GET")) {
-        method_not_allowed();    
+    fprintf(out, "%s\n", method);
+
+    if (strcmp(method, "GET") != 0) {
         fprintf(out, "Method Not Allowed:\n");
         fprintf(out, "%s\n", method);
         fclose(out);
+        method_not_allowed();    
         return 0;
     }
 
     // Skip over spaces
-    while (i < sizeof(buffer) && isspace(buffer[i]));
+    while (i < len && isspace(buffer[i])) {
+        i++;
+    }
 
     // Get URL
     j = 0;
-    while (j < sizeof(url) - 1 && !isspace(buffer[i])) {
+    while (i < len && (j < (sizeof(url) - 1)) && !isspace(buffer[i])) {
         url[j] = buffer[i];
         i++;
         j++;
     }
     url[j] = '\0';
 
+    fprintf(out, "%s\n", url);
+
     // Skip over spaces
-    while (i < sizeof(buffer) && isspace(buffer[i]));
+    while (i < len && isspace(buffer[i])) {
+        i++;
+    }
 
     j = 0;
     while (j < sizeof(version) - 1 && !isspace(buffer[i])) {
@@ -189,8 +202,6 @@ int handle_client_connection() {
     }
     version[j] = '\0';
 
-    fprintf(out, "%s\n", method);
-    fprintf(out, "%s\n", url);
     fprintf(out, "%s\n", version);
     fclose(out);
 
