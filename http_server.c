@@ -15,6 +15,7 @@
 #define HOST_NAME "127.0.0.1"
 #define MAX_CONNECTIONS 5
 #define MAX_TIMESTAMP_LENGTH 64
+#define SERVER_STRING "Server: httpServer/0.1.0\r\n"
 
 #define MAX_RETRIES 5
 
@@ -31,6 +32,41 @@ struct hostent *client_entity;
 time_t seconds;
 struct tm *timestamp;
 char timestamp_str[MAX_TIMESTAMP_LENGTH];
+
+int read_line(int fd, char *buffer, int size) {
+    char *broken_buffer = (char*) malloc(sizeof(char) * 8096);
+    char next = '\0';
+    char err;
+    int i = 0;
+    FILE *f = fopen("read_line2.txt", "w");
+    while (i < size - 1 && next != '\n') {
+        err = read(fd, &next, 1);
+        if (err > 0) {
+            if (next == '\r') {
+                err = recv(fd, &next, 1, MSG_PEEK);
+                if (err > 0 && next == '\n') {
+                    read(fd, &next, 1);
+                } else {
+                    next = '\n';
+                }
+            }
+            fputc(next, f);
+            broken_buffer[i] = next;
+            buffer[i] = next;
+            i++;
+        } else {
+            next = '\n';
+        }
+    }
+    broken_buffer[i] = '\0';
+    buffer[i] = '\0';
+    FILE *out = fopen("read_line.txt", "w");
+    fprintf(out, "%s\n", broken_buffer);
+    fclose(out);
+    fclose(f);
+
+    return i;
+}
 
 int read_socket(int fd, char *buffer, int size) {
     int bytes_recvd = 0;
@@ -82,8 +118,87 @@ int write_socket(int fd, char *msg, int size) {
     return -1;
 }
 
-int handle_client_connection() {
+void method_not_allowed() {
+    char buffer[8096];
+    sprintf(buffer, "HTTP/1.0 501 Method Not Implemented\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "<HTML><HEAD><TITLE>Method Not Implemented</TITLE></HEAD>\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "<BODY><P>HTTP request method not supported.</P></BODY></HTML>\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+}
 
+void handle_client_connection1() {
+    char buffer[8096];
+    int len = read_socket(client_sockfd, buffer, sizeof(buffer));
+    FILE *f = fopen("blah.txt", "w");
+    fprintf(f, "%s", buffer);
+    fclose(f);
+}
+
+int handle_client_connection() {
+    char buffer[8096];
+    char method[256];
+    char url[256];
+    char version[256];
+    int len = read_line(client_sockfd, buffer, sizeof(buffer));
+    int i = 0,
+        j = 0;
+    FILE *out = fopen("blah.txt", "w");
+    fprintf(out, "%s\n", buffer);
+    fclose(out);
+    out = fopen("blah2.txt", "w");
+
+    // Get Method
+    while (i < sizeof(method) - 1 && !isspace(buffer[i])) {
+        method[i] = buffer[i];
+        i++;
+    }
+    method[i] = '\0';
+
+    if (strcasecmp(method, "GET")) {
+        method_not_allowed();    
+        fprintf(out, "Method Not Allowed:\n");
+        fprintf(out, "%s\n", method);
+        fclose(out);
+        return 0;
+    }
+
+    // Skip over spaces
+    while (i < sizeof(buffer) && isspace(buffer[i]));
+
+    // Get URL
+    j = 0;
+    while (j < sizeof(url) - 1 && !isspace(buffer[i])) {
+        url[j] = buffer[i];
+        i++;
+        j++;
+    }
+    url[j] = '\0';
+
+    // Skip over spaces
+    while (i < sizeof(buffer) && isspace(buffer[i]));
+
+    j = 0;
+    while (j < sizeof(version) - 1 && !isspace(buffer[i])) {
+        version[j] = buffer[i];
+        i++;
+        j++;
+    }
+    version[j] = '\0';
+
+    fprintf(out, "%s\n", method);
+    fprintf(out, "%s\n", url);
+    fprintf(out, "%s\n", version);
+    fclose(out);
+
+    return 0;
 }
 
 void terminate(int err_code) {
@@ -95,7 +210,6 @@ void terminate(int err_code) {
 }
 
 int main(int argc, char *argv[]) {
-
     // Clear all invalid data
     memset((char*) &serverhost, 0, sizeof(serverhost));
 
