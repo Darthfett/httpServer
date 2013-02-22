@@ -13,7 +13,7 @@
 #define TRUE 1
 #define FALSE 0
 
-#define PORT 8000
+#define PORT 80 
 #define HOST_NAME "127.0.0.1"
 #define MAX_CONNECTIONS 5
 #define MAX_TIMESTAMP_LENGTH 64
@@ -42,7 +42,7 @@ int cookie = FALSE;
 int header_err_flag = FALSE;
 struct tm *if_modified_since;
 int time_is_valid = TRUE;
-
+char *content = NULL;
 
 int read_line(int fd, char *buffer, int size) {
     char next = '\0';
@@ -330,33 +330,49 @@ int handle_client_connection() {
 
     read_headers();
 
+    if (header_err_flag) {
+        keep_alive = FALSE;
+        bad_request();
+        return -1;
+    }
+
+    if (content_length > 0) {
+        content = (char*) malloc(content_length + 1);
+        read_socket(client_sockfd, content, content_length);
+    }
+
     fprintf(stderr, "Content-Length: %d\n", content_length);
     fprintf(stderr, "Connection (keep_alive): %d\n", keep_alive);
     fprintf(stderr, "Cookie: %d\n", cookie);
     fprintf(stderr, "If-Modified-Since Valid Time: %d\n", time_is_valid);
     fprintf(stderr, "If-Modified-Since Time: %p\n", if_modified_since);
+    if (content != NULL) {
+        fprintf(stderr, "Content: %s\n", content);
+    }
 
     /***********************************************************/
     /*       Full message has been read, respond to client     */
     /***********************************************************/
 
-    // Inform client we don't support method if method is not GET
     if (strcmp(method, "GET") != 0) {
+        // Inform client we don't support method
         fprintf(stderr, "Method Not Allowed:\n");
         fprintf(stderr, "%s\n", method);
         method_not_allowed();    
         return 0;
     }
 
-    if (header_err_flag) {
-        bad_request();
-        return 0;
-    }
-
     if (cookie) {
+        // Inform client we don't support cookies
         not_implemented();
         return 0;
     }
+
+    // Fix filename
+    char *file_name = url + 1;
+
+    
+    not_found();
 
     return 0;
 }
@@ -435,9 +451,21 @@ int main(int argc, char *argv[]) {
             printf("[%s] Connection accepted from unresolvable host\n", timestamp_str);
         }
 
+        // Handle the new connection with a child process
         child = fork();
         if (child == 0) {
-            handle_client_connection();
+            // Continuously perform GET responses until we no longer wish to keep alive
+            while (keep_alive) {
+                content_length = -1;
+                cookie = FALSE;
+                header_err_flag = FALSE;
+                if_modified_since = NULL;
+                time_is_valid = TRUE;
+                content = NULL;
+
+                handle_client_connection();
+                if (content != NULL) free(content);
+            }
             exit(0);
         }
     }
