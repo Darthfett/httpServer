@@ -132,17 +132,37 @@ void forbidden() {
 
 void not_found() {
     // 404 Error
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 404 File Not Found\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    sprintf(body, "<HTML><HEAD><TITLE>File Not Found</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>File not found.</P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
 }
 
 void method_not_allowed() {
     // 405 Error
     char buffer[8096];
     char body[8096];
-    sprintf(buffer, "HTTP/1.1 501 Method Not Implemented\r\n");
+    sprintf(buffer, "HTTP/1.1 501 Method Not Allowed\r\n");
     write_socket(client_sockfd, buffer, strlen(buffer));
     sprintf(buffer, SERVER_STRING);
     write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Allow: GET\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
     sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
 
     sprintf(body, "<HTML><HEAD><TITLE>Method Not Implemented</TITLE></HEAD>\r\n");
     sprintf(body + strlen(body), "<BODY><P>HTTP request method not supported.</P></BODY></HTML>\r\n");
