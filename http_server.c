@@ -293,7 +293,7 @@ void not_implemented() {
 }
 
 void read_headers() {
-    fprintf(stderr, "\n--READ HEADERS--\n\n");
+    // fprintf(stderr, "\n--READ HEADERS--\n\n");
     while(1) {
         char header[8096];
         int len;
@@ -308,7 +308,7 @@ void read_headers() {
             continue;
         }
 
-        fprintf(stderr, "%s", header);
+        // fprintf(stderr, "%s", header);
 
         if (strcmp(header, "\n") == 0) {
             // Empty line signals end of HTTP Headers
@@ -442,7 +442,7 @@ void read_headers() {
             }
         } else if (strncasecmp(header, "Accept-Encoding", header_type_len) == 0) {
             acceptable_encoding = FALSE;
-        } else if (strncasecmp(header, "FROM", header_type_len) == 0) {
+        } else if (strncasecmp(header, "From", header_type_len) == 0) {
             strcpy(from_email, header_value_start);
         } else if (strncasecmp(header, "User-Agent", header_type_len) == 0) {
             strcpy(user_agent, header_value_start);
@@ -491,7 +491,7 @@ int handle_client_connection() {
     }
     method[i] = '\0';
 
-    fprintf(stderr, "method: %s\n", method);
+    // fprintf(stderr, "method: %s\n", method);
 
     // Skip over spaces
     while (i < buffer_len && isspace(buffer[i])) {
@@ -507,7 +507,7 @@ int handle_client_connection() {
     }
     url[j] = '\0';
 
-    fprintf(stderr, "url: %s\n", url);
+    // fprintf(stderr, "url: %s\n", url);
 
     // Skip over spaces
     while (i < buffer_len && isspace(buffer[i])) {
@@ -522,7 +522,7 @@ int handle_client_connection() {
     }
     version[j] = '\0';
 
-    fprintf(stderr, "version: %s\n", version);
+    // fprintf(stderr, "version: %s\n", version);
 
     read_headers();
 
@@ -537,13 +537,13 @@ int handle_client_connection() {
         read_socket(client_sockfd, content, content_length);
     }
 
-    fprintf(stderr, "Content-Length: %d\n", content_length);
-    fprintf(stderr, "Connection (keep_alive): %d\n", keep_alive);
-    fprintf(stderr, "Cookie: %d\n", cookie);
-    fprintf(stderr, "If-Modified-Since Valid Time: %d\n", time_is_valid);
-    fprintf(stderr, "If-Modified-Since Time: %p\n", if_modified_since);
+    // fprintf(stderr, "Content-Length: %d\n", content_length);
+    // fprintf(stderr, "Connection (keep_alive): %d\n", keep_alive);
+    // fprintf(stderr, "Cookie: %d\n", cookie);
+    // fprintf(stderr, "If-Modified-Since Valid Time: %d\n", time_is_valid);
+    // fprintf(stderr, "If-Modified-Since Time: %p\n", if_modified_since);
     if (content != NULL) {
-        fprintf(stderr, "Content: %s\n", content);
+        // fprintf(stderr, "Content: %s\n", content);
     }
 
     /***********************************************************/
@@ -552,8 +552,7 @@ int handle_client_connection() {
 
     if (strcmp(method, "GET") != 0) {
         // Inform client we don't support method
-        fprintf(stderr, "Method Not Allowed:\n");
-        fprintf(stderr, "%s\n", method);
+        fprintf(stderr, "Method Not Allowed: %s\n", method);
         method_not_allowed();    
         return 0;
     }
@@ -589,7 +588,7 @@ int handle_client_connection() {
         file_path[strlen(file_path)-1] = '\0';
     }
 
-    fprintf(stderr, "%s\n", file_path);
+    // fprintf(stderr, "%s\n", file_path);
 
     int fname_valid = is_valid_fname(file_path);
 
@@ -597,13 +596,13 @@ int handle_client_connection() {
 
     if (!fname_valid) {
         // invalid filename
-        fprintf(stderr, "Invalid file name\n");
+        fprintf(stderr, "403 Forbidden: Invalid file name\n");
         forbidden();
         return 0;
     }
 
     if (stat(file_path, &file_info)) {
-        fprintf(stderr, "Stat failed\n");
+        fprintf(stderr, "404 Not Found: Stat failed\n");
         // Stat failed
         not_found();
         return 1;
@@ -612,7 +611,7 @@ int handle_client_connection() {
     if (!S_ISREG(file_info.st_mode)) {
         // Not a file
         forbidden();
-        fprintf(stderr, "Not a file\n");
+        fprintf(stderr, "403 Forbidden: Not a regular file\n");
         return 0;
     }
 
@@ -620,7 +619,7 @@ int handle_client_connection() {
     if (!(file_info.st_mode & S_IRUSR)) {
         // No read permissions
         forbidden();
-        fprintf(stderr, "No permissions\n");
+        fprintf(stderr, "403 Forbidden: No read permissions\n");
         return 0;
     }
 
@@ -628,7 +627,7 @@ int handle_client_connection() {
     if (f == NULL) {
         // No file
         not_found();
-        fprintf(stderr, "Unable to open file\n");
+        fprintf(stderr, "404 Not Found: Unable to open file\n");
         return 0;
     }
 
@@ -640,12 +639,13 @@ int handle_client_connection() {
 
         double diff = difftime(last, since);
         if (diff <= 0) {
+            fprintf(stderr, "304 Not Modified\n");
             not_modified();
             return 0;
         }
     }
 
-    fprintf(stderr, "Serving up Content\n");
+    fprintf(stderr, "All looks good, serving up content in %s\n", file_path);
 
     char *file_contents = NULL;
     int contents_length = 0;
@@ -668,13 +668,11 @@ int handle_client_connection() {
     }
     fclose(f);
 
-    fprintf(stderr, "File Contents:\n");
+    // fprintf(stderr, "File Contents:\n");
 
-    fprintf(stderr, "%s\n", file_contents);
+    // fprintf(stderr, "%s\n", file_contents);
 
     ok(file_contents);
-
-    
 
     return 0;
 }
