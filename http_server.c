@@ -150,12 +150,17 @@ void not_modified() {
     sprintf(buffer, SERVER_STRING);
     write_socket(client_sockfd, buffer, strlen(buffer));
     
-    // TODO: Add Date header field
-            // strptime(modified_since_buffer, "%a, %d %b %Y %T %Z", if_modified_since);
+    time_t raw_time;
+    struct tm *current_time;
+    time(&raw_time);
+    current_time = localtime(&raw_time);
+    char date_buf[512];
+    strftime(date_buf, 512, "Date: %a, %d %b %Y %T %Z", current_time);
+
+    write_socket(client_sockfd, date_buf, strlen(date_buf));
 
     // Body isn't sent for this type of error
     write_socket(client_sockfd, "\r\n", strlen("\r\n"));
-
 }
 
 void bad_request() {
@@ -370,8 +375,30 @@ void read_headers() {
                 time_is_valid = FALSE;    
             }
         } else if (strncasecmp(header, "Accept-Language", header_type_len) == 0) {
-            if (!(strncasecmp(header_value_start, "en-US", strlen("en-US")) == 0)) {
-                not_eng = TRUE;
+            char *traverse = header_value_start;
+            char *temporary;
+            acceptable_text = FALSE;
+            while (1){
+                if (strncasecmp(traverse, "text/plain", strlen("text/plain")) == 0) {
+                    acceptable_text = TRUE;
+                    break;
+                }
+                if (strncasecmp(traverse, "en-US", strlen("en-US")) == 0) {
+                    acceptable_text = TRUE;
+                    break;
+                }
+                if (strncasecmp(traverse, "en", strlen("en")) == 0) {
+                    acceptable_text = TRUE;
+                    break;
+                }
+                temporary = strchr(traverse, ',');
+                if (temporary == NULL)
+                    break;
+                // Skip past comma
+                temporary++;
+                while(isspace(*temporary))
+                    temporary++;
+                traverse = temporary;
             }
         } else if (strncasecmp(header, "Accept", header_type_len) == 0) {
             char *traverse = header_value_start;
@@ -379,6 +406,10 @@ void read_headers() {
             acceptable_text = FALSE;
             while (1){
                 if (strncasecmp(traverse, "text/plain", strlen("text/plain")) == 0) {
+                    acceptable_text = TRUE;
+                    break;
+                }
+                if (strncasecmp(traverse, "text/html", strlen("text/html")) == 0) {
                     acceptable_text = TRUE;
                     break;
                 }
@@ -421,9 +452,14 @@ void read_headers() {
 
 int is_valid_fname(char *fname) {
     char *it = fname;
-    /*
-    while (
-    */
+    while(TRUE) {
+        if (strncmp(it, "..", 2) == 0) {
+            return FALSE;
+        }
+        it = strchr(it, '/');
+        if (it == NULL) break;
+        it++;
+    }
     return TRUE;
 }
 
@@ -555,13 +591,12 @@ int handle_client_connection() {
 
     fprintf(stderr, "%s\n", file_path);
 
-    // int fname_valid = is_valid_fname(file_path);
-    int fname_valid = TRUE;
+    int fname_valid = is_valid_fname(file_path);
 
     struct stat file_info;
 
     if (!fname_valid) {
-        // stat failed, or invalid filename
+        // invalid filename
         fprintf(stderr, "Invalid file name\n");
         forbidden();
         return 0;
@@ -600,7 +635,7 @@ int handle_client_connection() {
     if (if_modified_since != NULL) {
         struct tm *last_modified = gmtime(&file_info.st_mtime);
 
-        time_t last = mktime(last_modifed);
+        time_t last = mktime(last_modified);
         time_t since = mktime(if_modified_since);
 
         double diff = difftime(last, since);
