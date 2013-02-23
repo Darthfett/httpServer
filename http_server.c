@@ -44,6 +44,12 @@ int header_err_flag = FALSE;
 struct tm *if_modified_since;
 int time_is_valid = TRUE;
 char *content = NULL;
+int not_eng = FALSE;
+int acceptable_text = TRUE;
+int acceptable_charset = TRUE;
+int acceptable_encoding = TRUE;
+char from_email[512];
+char user_agent[512];
 
 int read_line(int fd, char *buffer, int size) {
     char next = '\0';
@@ -145,6 +151,7 @@ void not_modified() {
     write_socket(client_sockfd, buffer, strlen(buffer));
     
     // TODO: Add Date header field
+            // strptime(modified_since_buffer, "%a, %d %b %Y %T %Z", if_modified_since);
 
     // Body isn't sent for this type of error
     write_socket(client_sockfd, "\r\n", strlen("\r\n"));
@@ -362,6 +369,52 @@ void read_headers() {
             if (if_modified_since == NULL) {
                 time_is_valid = FALSE;    
             }
+        } else if (strncasecmp(header, "Accept-Language", header_type_len) == 0) {
+            if (!(strncasecmp(header_value_start, "en-US", strlen("en-US")) == 0)) {
+                not_eng = TRUE;
+            }
+        } else if (strncasecmp(header, "Accept", header_type_len) == 0) {
+            char *traverse = header_value_start;
+            char *temporary;
+            acceptable_text = FALSE;
+            while (1){
+                if (strncasecmp(traverse, "text/plain", strlen("text/plain")) == 0) {
+                    acceptable_text = TRUE;
+                    break;
+                }
+                temporary = strchr(traverse, ',');
+                if (temporary == NULL)
+                    break;
+                // Skip past comma
+                temporary++;
+                while(isspace(*temporary))
+                    temporary++;
+                traverse = temporary;
+            }
+        } else if (strncasecmp(header, "Accept-Charset", header_type_len) == 0) {
+            char *traverse = header_value_start;
+            char *temporary;
+            acceptable_charset = FALSE;
+            while (1){
+                if (strncasecmp(traverse, "ISO-8859-1", strlen("ISO-8859-1")) == 0) {
+                    acceptable_charset = TRUE;
+                    break;
+                }
+                temporary = strchr(traverse, ',');
+                if(temporary == NULL)
+                    break;
+                // Skip past comma
+                temporary++;
+                while(isspace(*temporary))
+                    temporary++;
+                traverse = temporary;
+            }
+        } else if (strncasecmp(header, "Accept-Encoding", header_type_len) == 0) {
+            acceptable_encoding = FALSE;
+        } else if (strncasecmp(header, "FROM", header_type_len) == 0) {
+            strcpy(from_email, header_value_start);
+        } else if (strncasecmp(header, "User-Agent", header_type_len) == 0) {
+            strcpy(user_agent, header_value_start);
         }
     }
 }
@@ -475,6 +528,24 @@ int handle_client_connection() {
         return 0;
     }
 
+    if (not_eng) {
+        // Inform client we only support English
+        not_implemented();
+        return 0;
+    }
+
+    if (!acceptable_text) {
+        // Inform client we only support plain text
+        not_implemented();
+        return 0;
+    }
+
+    if (!acceptable_charset) {
+        // Inform client we only support ASCII
+        not_implemented();
+        return 0;
+    }
+
     // Fix filename
     char file_path[512];
     sprintf(file_path, "htdocs%s", url);
@@ -524,6 +595,19 @@ int handle_client_connection() {
         not_found();
         fprintf(stderr, "Unable to open file\n");
         return 0;
+    }
+
+    if (if_modified_since != NULL) {
+        struct tm *last_modified = gmtime(&file_info.st_mtime);
+
+        time_t last = mktime(last_modifed);
+        time_t since = mktime(if_modified_since);
+
+        double diff = difftime(last, since);
+        if (diff <= 0) {
+            not_modified();
+            return 0;
+        }
     }
 
     fprintf(stderr, "Serving up Content\n");
@@ -645,6 +729,10 @@ int main(int argc, char *argv[]) {
                 if_modified_since = NULL;
                 time_is_valid = TRUE;
                 content = NULL;
+                not_eng = FALSE;
+                acceptable_text = TRUE;
+                acceptable_charset = TRUE;
+                acceptable_encoding = TRUE;
 
                 handle_client_connection();
                 if (content != NULL) free(content);
