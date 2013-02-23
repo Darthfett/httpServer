@@ -6,6 +6,7 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -118,16 +119,78 @@ int write_socket(int fd, char *msg, int size) {
     return -1;
 }
 
+void ok(char *body) {
+    // 200 OK
+    char buffer[8096];
+    sprintf(buffer, "HTTP/1.1 200 OK\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/plain\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
+}
+
 void not_modified() {
     // 304
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 304 Not Modified\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    
+    // TODO: Add Date header field
+
+    // Body isn't sent for this type of error
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
 }
 
 void bad_request() {
     // 400 Error
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 400 Bad Request\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    sprintf(body, "<HTML><HEAD><TITLE>Bad Request</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>The request cannot be fulfilled due to bad syntax.</P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
 }
 
 void forbidden() {
     // 403 Error
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 403 Forbidden\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    sprintf(body, "<HTML><HEAD><TITLE>Forbidden</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>The server understood the request, but is refusing to fulfill it.</P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
 }
 
 void not_found() {
@@ -177,10 +240,44 @@ void method_not_allowed() {
 
 void server_error() {
     // 500 Error
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 500 Internal Server Error\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    sprintf(body, "<HTML><HEAD><TITLE>Internal Server Error</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>The server encountered an unexpected condition which prevented it from fulfilling the request. </P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
 }
 
 void not_implemented() {
     // 501 Error
+    char buffer[8096];
+    char body[8096];
+    sprintf(buffer, "HTTP/1.1 501 Not Implemented\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, SERVER_STRING);
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    sprintf(buffer, "Content-Type: text/html\r\n");
+    write_socket(client_sockfd, buffer, strlen(buffer));
+
+    sprintf(body, "<HTML><HEAD><TITLE>Not Implemented</TITLE></HEAD>\r\n");
+    sprintf(body + strlen(body), "<BODY><P>The server does not support the functionality required to fulfill the request. </P></BODY></HTML>\r\n");
+
+    sprintf(buffer, "Content-Length: %d\r\n", strlen(body));
+    write_socket(client_sockfd, buffer, strlen(buffer));
+    write_socket(client_sockfd, "\r\n", strlen("\r\n"));
+
+    write_socket(client_sockfd, body, strlen(body));
 }
 
 void read_headers() {
@@ -269,6 +366,14 @@ void read_headers() {
     }
 }
 
+int is_valid_fname(char *fname) {
+    char *it = fname;
+    /*
+    while (
+    */
+    return TRUE;
+}
+
 int handle_client_connection() {
     char buffer[8096];
     int buffer_len; // Length of buffer
@@ -287,6 +392,8 @@ int handle_client_connection() {
     if (buffer_len <= 0) {
         return -1;
     }
+
+    fprintf(stderr, "==== Read Next Request ====\n");
 
     // Get Method (e.g. GET, POST, etc)
     while ((i < (sizeof(method) - 1)) && (!isspace(buffer[i]))) {
@@ -369,10 +476,86 @@ int handle_client_connection() {
     }
 
     // Fix filename
-    char *file_name = url + 1;
+    char file_path[512];
+    sprintf(file_path, "htdocs%s", url);
+    if (file_path[strlen(file_path)-1] == '/') {
+        file_path[strlen(file_path)-1] = '\0';
+    }
+
+    fprintf(stderr, "%s\n", file_path);
+
+    // int fname_valid = is_valid_fname(file_path);
+    int fname_valid = TRUE;
+
+    struct stat file_info;
+
+    if (!fname_valid) {
+        // stat failed, or invalid filename
+        fprintf(stderr, "Invalid file name\n");
+        forbidden();
+        return 0;
+    }
+
+    if (stat(file_path, &file_info)) {
+        fprintf(stderr, "Stat failed\n");
+        // Stat failed
+        not_found();
+        return 1;
+    }
+
+    if (!S_ISREG(file_info.st_mode)) {
+        // Not a file
+        forbidden();
+        fprintf(stderr, "Not a file\n");
+        return 0;
+    }
+
+
+    if (!(file_info.st_mode & S_IRUSR)) {
+        // No read permissions
+        forbidden();
+        fprintf(stderr, "No permissions\n");
+        return 0;
+    }
+
+    FILE *f = fopen(file_path, "r");
+    if (f == NULL) {
+        // No file
+        not_found();
+        fprintf(stderr, "Unable to open file\n");
+        return 0;
+    }
+
+    fprintf(stderr, "Serving up Content\n");
+
+    char *file_contents = NULL;
+    int contents_length = 0;
+    char line[512];
+
+    while (fgets(line, sizeof(line), f) != NULL) {
+        if (file_contents != NULL) {
+            char *new_contents = (char*) malloc(contents_length + strlen(line) + 1);
+            strcpy(new_contents, file_contents);
+            strcpy(new_contents + strlen(new_contents), line);
+            contents_length += strlen(line);
+
+            free(file_contents);
+            file_contents = new_contents;
+        } else {
+            file_contents = (char*) malloc(strlen(line) + 1);
+            strcpy(file_contents, line);
+            contents_length += strlen(line);
+        }
+    }
+    fclose(f);
+
+    fprintf(stderr, "File Contents:\n");
+
+    fprintf(stderr, "%s\n", file_contents);
+
+    ok(file_contents);
 
     
-    not_found();
 
     return 0;
 }
